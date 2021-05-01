@@ -1,0 +1,546 @@
+CREATE EXTERNAL TABLE if not exists airlines_final (
+Year int, 
+Month int,
+carrier string, 
+carrier_name string, 
+airport string, 
+airport_name string, 
+ArrTime int, 
+ArrDel int,
+carrier_ct int, 
+weather_ct int, 
+nas_ct int,
+security_ct int, 
+late_aircraft_ct int,
+arr_cancelled int, 
+arr_diverted int,
+ArrDelay int, 
+carrierDelay int, 
+weatherdelay int, 
+nasdelay int,
+securitydelay int,
+lateaircraftdelat int
+) 
+row format delimited 
+fields terminated by ',' 
+lines terminated by '\n'
+stored as TEXTFILE
+TBLPROPERTIES('skip.header.line.count'='1');
+
+describe airlines;
+
+Load data local INPATH '/user/aman/airlines_data'
+OVERWRITE into TABLE airlines;
+
+// simple hive statememt to fetch top 10 records
+select * from airlines limit 10;
+
+// you can notice from the result how huge the dataset is
+select count(*) from airlines;
+
+create table airlines_bucketed1 ( 
+ Year int, Month int,carrier string,carrier_name string, airport string, airport_name string, ArrTime int, 
+ArrDel int,carrier_ct int, weather_ct int, nas_ct int,security_ct int, late_aircraft_ct int,arr_cancelled int, 
+arr_diverted int,ArrDelay int, carrierDelay int, weatherdelay int, nasdelay int,securitydelay int,lateaircraftdelat int 
+  )
+clustered by (year) into 6 buckets
+row format delimited 
+fields terminated by ','
+TBLPROPERTIES('serialization.null.format'='', 'skip.header.line.count'='1')
+from airlines1 
+insert overwrite table airlines_bucketed1
+select * ;
+
+// get count of each bucket
+select count(*) from airlines_bucketed1 tablesample(bucket 1 out of 6 on year);
+select count(*) from airlines_bucketed1 tablesample(bucket 2 out of 6 on year); 
+select count(*) from airlines_bucketed1 tablesample(bucket 3 out of 6 on year);
+select count(*) from airlines_bucketed1 tablesample(bucket 5 out of 6 on year);
+
+
+// fetching data from different buckets
+select distinct Year from airlines_bucketed tablesample(bucket 1 out of 22 on year);
+select distinct year from airlines_bucketed tablesample(bucket 2 out of 22 on year);
+select distinct year from airlines_bucketed tablesample(bucket 5 out of 10 on year);
+
+SELECT distinct origin,dayofweek,dest 
+FROM airlines_bucketed tablesample(bucket 4 out of 6 on year)
+WHERE dest='sfo'
+ORDER BY dayofweek;
+
+// block sampling 
+select count(*) from airlines_bucketed tablesample(10 percent);  
+(output count based on the number of blocks)
+
+select min(year), max(year), uniqueCarrier, count(*) as cnt,
+   sum(if(ArrDelay>30, 1, 0)) as flights_delayed,
+   round(sum(if(ArrDelay>30, 1, 0))/count(*),2) as rate
+FROM airlines
+WHERE
+   DayOfWeek not in (6,7) and Origin not in ('AK', 'HI', 'PR', 'VI')
+   and Dest not in ('AK', 'HI', 'PR', 'VI')
+   and year < 2019
+GROUP by uniquecarrier
+HAVING cnt > 100000 and max(year) > 2014
+ORDER by rate DESC
+LIMIT 1000;
+
+// aggregating all flights on the basis of year
+select year,count(*) as count from airlines group by year order by year ;
+// getting orgin/departure wise flight count
+select origin, count(*) as TotalFlights from airlines group by origin order by year;
+select dest, count(*) as TotalFlights from airlines group by dest, order by dest;
+
+select avg(DepDelay) from airlines; 
+query result: 8.17
+
+select stddev_pop(DepDelay) from airlines; 
+query result: 28.50
+
+select count(*) as OriginFromSFO from airlines
+where origin = 'SFO';
+    
+select year,sum(*) as TotalFlights from airlines where origin = 'SFO' group by year order by year;
+
+1
+2
+3
+
+	
+
+    
+// counts the flights and max delay at each airport
+select airport_cd, count(*), max(delay) from airlines group by airport_cd;
+
+average arrival delay in minutes for each U.S. certified carrier
+
+Delayed flights performance by state: Which states have had more relative delayed flights during this time? (For convenience, we will consider a delay each flight whose departure delay in minutes is greater than two times the average: 19.16 minutes).
+
+1
+2
+3
+
+	
+
+    
+select OriginState, count(if(DepDelay > 19.16, "", NULL)), count(*), count(if(DepDelayMinutes > 19.16, "", NULL)) / count(*) as pcent_retraso
+from airlines group by OriginState order by pcent_retraso desc;
+
+ResultSet : State A: Delayed flights B: Flights A / B IL 1271765 7446363 0.17 NJ 413214 2567503 0.16 GA 934228 6012156 0.15
+
+Delayed flights annual performance by carrier: Which flight carriers have had more relative delayed flights during this time, by year? This query shows us a “negative annual ranking” of carriers.
+
+1
+2
+
+	
+
+    
+create table year_carrier_stats(year string, carrier string, delayed int, total int, percent double) row format delimited fields terminated by '\t' stored as textfile;
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+
+	
+
+insert overwrite table year_carrier_stats
+   select
+      Year,
+      Carrier,
+      count(if(DepDelayMinutes > 19.16, "", NULL)),
+      count(*),
+      count(if(DepDelayMinutes > 19.16, "", NULL)) / count(*) as pcent_retraso
+   from
+      my_table
+   group by
+      Year,
+      Carrier
+   order by
+      Year asc,
+      pcent_retraso desc;
+
+1
+
+	
+
+select year,count(*) as TotalFlights from airlines where origin = 'SFO' group by year order by year;
+
+ResultSet: Year | Carrier| A: Delayed flights | B: Flights | A / B —–|——–|——————–|————| 2007 | EV | 78482 | 286234 | 0.27 2007 | AA | 134338| 633857| 0.21 2007 | MQ |110457 | 540494 | 0.20 2007 | B6 | 38695 | 191450 | 0.20 2007 | UA | 97736 | 490002 | 0.19
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+
+	
+
+select
+   Year,
+   count(if(WeatherDelay > 0, "", NULL)) as foo
+from
+   my_table
+where
+   OriginState like '%OR%'
+group by
+   Year
+order by
+   foo desc
+limit 1;
+
+Variable correlation:
+
+Let’s take the following hypothesis: The later in the day, the more likely it is that a flight will be delayed. Is there any relationship between arrival time and delay time of a flight?
+
+A simple way of proving this hypothesis is through a simple query that extracts and creates groupings by arrival time, measuring the average delay time in each of the time intervals.
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+
+	
+
+select
+   substr(DepTime, 0, 2) as foo,
+   avg(ArrDelayMinutes)
+from
+   my_table
+group by
+   substr(DepTime, 0, 2)
+order by
+   foo asc;
+
+Indeed, the later in the day, the more delays there are, because flight delays are usually accumulative. Because flights that arrive late in the night still arrive after midnight, the early hours of the day are the ones that accumulate the most delay time.
+Creating visualizations and graphs
+
+Other questions that could be asked the same way and at the same cost: What days in the week accumulated the majority of delayed flights? Which flights are delayed the most, by company?
+
+
+ToDO
+
+    delays by year
+    delay by month or week
+    delay on hourly basis of a day
+    busiest airports
+    top cities
+    When is the best time of day/day of week/time of year to fly to minimise delays?
+    Do older planes suffer more delays?
+    How does the number of people flying between different locations change over time?
+    How well does weather predict plane delays?
+    Can you detect cascading failures as delays in one airport create delays in others? Are there critical links in the system?
+
+Tags: analysis hadoop hive
+
+Updated: August 23, 2015
+Share on
+Twitter Facebook Google+
+LinkedIn
+Previous
+Next
+You May Also Enjoy
+Scala Snippets - Read/Write to a file
+
+1 minute read
+
+Ways to read and write to a file using scala
+
+
+// counts the flights and max delay at each airport
+select airport_cd, count(*), max(delay) from airlines group by airport_cd;
+
+select OriginState, count(if(DepDelay > 19.16, "", NULL)), count(*), count(if(DepDelayMinutes > 19.16, "", NULL)) / count(*) as pcent_retraso
+from airlines group by OriginState order by pcent_retraso desc;
+
+create table year_carrier_stats(year string, carrier string, delayed int, total int, percent double) row format delimited fields terminated by '\t' stored as textfile;
+
+
+
+insert overwrite table year_carrier_stats
+   select
+      Year,
+      Carrier,
+      count(if(DepDelayMinutes > 19.16, "", NULL)),
+      count(*),
+      count(if(DepDelayMinutes > 19.16, "", NULL)) / count(*) as pcent_retraso
+   from
+      my_table
+   group by
+      Year,
+      Carrier
+   order by
+      Year asc,
+      pcent_retraso desc;
+
+
+
+select year,count(*) as TotalFlights from airlines where origin = 'SFO' group by year order by year;
+
+elect
+   Year,
+   count(if(WeatherDelay > 0, "", NULL)) as foo
+from
+   my_table
+where
+   OriginState like '%OR%'
+group by
+   Year
+order by
+   foo desc
+limit 1;
+
+select
+   substr(DepTime, 0, 2) as foo,
+   avg(ArrDelayMinutes)
+from
+   my_table
+group by
+   substr(DepTime, 0, 2)
+order by
+   foo asc;
+Transitioning to functional programming
+
+3 minute read
+
+Here’s I’ll be sharing my points to transition from imperative to functional style of programming
+All about Data Shuffling in Apache Spark
+
+2 minute read
+
+Serialization in Spark
+
+2 minute read
+
+
+insert overwrite local directory '/home/suranjana/hive_output' row format delimited fields terminated by ',' select avg(arrdelay) as arrival_delay,carrier,airport,year,month from airlines_final group by carrier,airport,year,month sort by arrival_delay,airport;
+
+
+
+select avg(arrdelay) as arrival_delay,carrier,airport,year,month from airlines_final group by carrier,airport,year,month sort by arrival_delay,airport;
+
+select avg(arrdelay) as arrival_delay,min(arrdelay) as min_delay,max(arrdelay) as max_delay,carrier,airport,year,month from airlines_final where year = 2014 group by carrier,airport,year,month sort by airport,arrival_delay;
+
+(select count(month),carrier_name,month from airlines_final where arrdelay=0 and year=2014 group by month,carrier_name,month);
+
+select count(month) as totalwithoutdelay,carrier_name from airlines_final where arrdelay=0  group by carrier_name;
+
+select count(month) as totalwithoutdelay,carrier_name from airlines_final where arrdelay=0 and weatherdelay=0 and nasdelay=0 and securitydelay=0 and lateaircraftdelat=0 group by carrier_name;
+
++--------------------+--------------------------------+
+| totalwithoutdelay  |          carrier_name          |
++--------------------+--------------------------------+
+| 13                 | "AirTran Airways Corporation"  |
+| 140                | "Alaska Airlines Inc."         |
+| 211                | "Allegiant Air"                |
+| 72                 | "American Airlines Inc."       |
+| 260                | "Delta Air Lines Inc."         |
+| 150                | "Endeavor Air Inc."            |
+| 130                | "Envoy Air"                    |
+| 414                | "ExpressJet Airlines Inc."     |
+| 68                 | "ExpressJet Airlines LLC"      |
+| 149                | "Frontier Airlines Inc."       |
+| 27                 | "Hawaiian Airlines Inc."       |
+| 32                 | "JetBlue Airways"              |
+| 117                | "Mesa Airlines Inc."           |
+| 38                 | "PSA Airlines Inc."            |
+| 164                | "Republic Airline"             |
+| 490                | "SkyWest Airlines Inc."        |
+| 1                  | "Southwest Airlines Co."       |
+| 28                 | "Spirit Air Lines"             |
+| 31                 | "US Airways Inc."              |
+| 184                | "United Air Lines Inc."        |
+| 19                 | "Virgin America"               |
++--------------------+--------------------------------+
+
+ select count(month) as totalwithoutdelay,carrier_name from airlines_final where arrdelay=0 and weatherdelay=0 and nasdelay=0 and securitydelay=0 and lateaircraftdelat=0 and arr_cancelled =0 and arr_diverted=0 group by carrier_name;
+
+ select count(month) as totalwithoutdelay,carrier_name from airlines_final where arrdelay=0 and weatherdelay=0 and nasdelay=0 and securitydelay=0 and lateaircraftdelat=0 and arr_cancelled =0 and arr_diverted=0 group by carrier_name order by totalwithoutdelay desc;
+
++--------------------+--------------------------------+
+| totalwithoutdelay  |          carrier_name          |
++--------------------+--------------------------------+
+| 379                | "SkyWest Airlines Inc."        |
+| 329                | "ExpressJet Airlines Inc."     |
+| 212                | "Delta Air Lines Inc."         |
+| 169                | "Allegiant Air"                |
+| 154                | "United Air Lines Inc."        |
+| 143                | "Republic Airline"             |
+| 133                | "Endeavor Air Inc."            |
+| 106                | "Frontier Airlines Inc."       |
+| 106                | "Envoy Air"                    |
+| 92                 | "Alaska Airlines Inc."         |
+| 90                 | "Mesa Airlines Inc."           |
+| 65                 | "American Airlines Inc."       |
+| 53                 | "ExpressJet Airlines LLC"      |
+| 33                 | "PSA Airlines Inc."            |
+| 27                 | "US Airways Inc."              |
+| 24                 | "JetBlue Airways"              |
+| 22                 | "Hawaiian Airlines Inc."       |
+| 19                 | "Spirit Air Lines"             |
+| 11                 | "Virgin America"               |
+| 9                  | "AirTran Airways Corporation"  |
+| 1                  | "Southwest Airlines Co."       |
++--------------------+--------------------------------+
+
+select count(airport_name) as toavoidelay,airport_name,carrier_name from airlines_final where arrdelay > 1 or weatherdelay > 1469 or nasdelay > 232 or securitydelay > 1136  group by airport_name,carrier_name sort by toavoidelay desc;
+
+
+select count(airport_name) as severelydelayed,airport_name,airport,carrier_name from airlines_final where arrdelay > 1 or weatherdelay > 1469 or nasdelay > 232 or securitydelay > 1136  group by airport_name,airport,carrier_name sort by severelydelayed desc;
+
+
+select month,count(month) as total from airlines_final where arrdelay=0 and weatherdelay=0 and nasdelay=0 and securitydelay=0 group by month order by total desc;
+
+
+
++--------+--------+
+| month  | total  |
++--------+--------+
+| 9      | 305    |
+| 11     | 284    |
+| 4      | 279    |
+| 10     | 277    |
+| 5      | 239    |
+| 1      | 221    |
+| 8      | 209    |
+| 3      | 201    |
+| 6      | 198    |
+| 12     | 193    |
+| 2      | 192    |
+| 7      | 150    |
++--------+--------+
+
+
+FINALIZED QUERIES
+BEST AIRLINES TO AVOID DELAYS
+
+select count(*) as totalwithoutdelay,carrier_name from airlines_final where arrdelay=0 and weatherdelay=0 and nasdelay=0 and securitydelay=0 and lateaircraftdelat=0 and arr_cancelled =0 and arr_diverted=0 group by carrier_name sort by totalwithoutdelay desc;
+
+SEVERELY DELAYED
+select count(airport_name) as severelydelayed,airport_name,airport from airlines_final where arrdelay > 1 and weatherdelay > 1469 and nasdelay > 232 and securitydelay > 1136 and carrierdelay > 4736 group by airport_name,airport sort by severelydelayed desc limit 25;
+
+2019
+select count(airport_name) as severelydelayed,airport_name,airport from airlines_final where arrdelay > 0.90 and weatherdelay > 1402 and nasdelay > 252 and securitydelay > 1100 and carrierdelay > 4581 and year = 2019 group by airport_name,airport sort by severelydelayed desc limit 25;
+
+2018
+select count(airport_name) as severelydelayed,airport_name,airport from airlines_final where arrdelay > 0.88 and weatherdelay > 1301 and nasdelay > 243 and securitydelay > 1063 and carrierdelay > 4330 and year = 2018 group by airport_name,airport sort by severelydelayed desc limit 25;
+
+2017
+select count(airport_name) as severelydelayed,airport_name,airport from airlines_final where arrdelay > 1 and weatherdelay > 1640 and nasdelay > 223 and securitydelay > 1319 and carrierdelay > 5261 and year = 2017 group by airport_name,airport sort by severelydelayed desc limit 25;
+
+2016
+select count(airport_name) as severelydelayed,airport_name,airport from airlines_final where arrdelay > 1 and weatherdelay > 1601 and nasdelay > 213 and securitydelay > 1161 and carrierdelay > 4906 and year = 2016 group by airport_name,airport sort by severelydelayed desc limit 25;
+
+2015
+ select count(airport_name) as severelydelayed,airport_name,airport from airlines_final where arrdelay > 1 and weatherdelay > 1492 and nasdelay > 229 and securitydelay > 1060 and carrierdelay > 4635 and lateaircraftdelat > 6 and year = 2015 group by airport_name,airport sort by severelydelayed desc limit 25;
+
+2014
+select count(airport_name) as severelydelayed,airport_name,airport from airlines_final where arrdelay > 1 and weatherdelay > 1523 and nasdelay > 214 and securitydelay > 1183 and carrierdelay > 5037 and lateaircraftdelat > 5 and year = 2014 group by airport_name,airport sort by severelydelayed desc limit 25;
+
+--------------------------------
+--------------------------------
+--------------------------------
+
+BEST TIME OF THE YEAR TO TRAVEL ON
+
+select month,count(month) as total from airlines_final where arrdelay=0 and weatherdelay=0 and nasdelay=0 and securitydelay=0 and arr_cancelled = 0 and arr_diverted = 0  group by month order by total desc;
+
+
+2019
+select month,count(month) as total from airlines_final where arrdelay=0 and weatherdelay=0 and nasdelay=0 and securitydelay=0 and arr_cancelled = 0 and arr_diverted = 0 and year = 2019 group by month order by total desc;
+
+2018
+select month,count(month) as total from airlines_final where arrdelay=0 and weatherdelay=0 and nasdelay=0 and securitydelay=0 and arr_cancelled = 0 and arr_diverted = 0 and year = 2018 group by month order by total desc;
+
+2017
+select month,count(month) as total from airlines_final where arrdelay=0 and weatherdelay=0 and nasdelay=0 and securitydelay=0 and arr_cancelled = 0 and arr_diverted = 0 and year = 2017 group by month order by total desc;
+
+2016
+select month,count(month) as total from airlines_final where arrdelay=0 and weatherdelay=0 and nasdelay=0 and securitydelay=0 and arr_cancelled = 0 and arr_diverted = 0 and year = 2016 group by month order by total desc;
+
+2015
+select month,count(month) as total from airlines_final where arrdelay=0 and weatherdelay=0 and nasdelay=0 and securitydelay=0 and arr_cancelled = 0 and arr_diverted = 0 and year = 2015 group by month order by total desc;
+
+2014
+select month,count(month) as total from airlines_final where arrdelay=0 and weatherdelay=0 and nasdelay=0 and securitydelay=0 and arr_cancelled = 0 and arr_diverted = 0 and year = 2014 group by month order by total desc;
+
+Total Cancellation for each year
+
+select count(arr_cancelled) as total_cancelled,carrier_name from airlines_final group by carrier_name order by total_cancelled desc;
+
+2014
+select count(arr_cancelled) as total_cancelled,carrier_name from airlines_final where year = 2014 group by carrier_name order by total_cancelled desc;
+
+2015
+select count(arr_cancelled) as total_cancelled,carrier_name from airlines_final where year = 2015 group by carrier_name order by total_cancelled desc;
+
+2016
+select count(arr_cancelled) as total_cancelled,carrier_name from airlines_final where year = 2016 group by carrier_name order by total_cancelled desc;
+
+2017
+select count(arr_cancelled) as total_cancelled,carrier_name from airlines_final where year = 2017 group by carrier_name order by total_cancelled desc;
+
+2018
+select count(arr_cancelled) as total_cancelled,carrier_name from airlines_final where year = 2018 group by carrier_name order by total_cancelled desc;
+
+2019
+select count(arr_cancelled) as total_cancelled,carrier_name from airlines_final where year = 2019 group by carrier_name order by total_cancelled desc;
+
+
+
+
+ year               | int        |          |
+| month              | int        |          |
+| carrier            | string     |          |
+| carrier_name       | string     |          |
+| airport            | string     |          |
+| airport_name       | string     |          |
+| arrtime            | int        |          |
+| arrdel             | int        |          |
+| carrier_ct         | int        |          |
+| weather_ct         | int        |          |
+| nas_ct             | int        |          |
+| security_ct        | int        |          |
+| late_aircraft_ct   | int        |          |
+| arr_cancelled      | int        |          |
+| arr_diverted       | int        |          |
+| arrdelay           | int        |          |
+| carrierdelay       | int        |          |
+| weatherdelay       | int        |          |
+| nasdelay           | int        |          |
+| securitydelay      | int        |          |
+| lateaircraftdelat
+
+insert overwrite local directory '/home/suranjana/hive_output' row format delimited fields terminated by ',' select count(arr_cancelled) as total_cancelled,carrier_name from airlines_final where year = 2014 group by carrier_name order by total_cancelled desc;
+
+
+
+
+select arr_cancelled as cancelled, carrier_delay as cd, weatherdelay as wd, nasdelay as nsdel, securitydelay as sd from airlines_final where arr_cancelled>0;
+
+
+select avg(arrdelay) as arrival_delay, avg(carrierdelay) as carrier_delay, avg(weatherdelay) as weather_delay, avg(nasdelay) as nas_delay, avg(securitydelay) as security_delay, avg(lateaircraftdelat) as lateaircraftdelay from airlines_final;
